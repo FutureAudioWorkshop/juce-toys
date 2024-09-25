@@ -1,4 +1,5 @@
 import lldb
+import math
 #
 # ABOUT
 #
@@ -45,7 +46,8 @@ import lldb
 # Much Python/LLDB magic...
 
 def __lldb_init_module(debugger, dict):
-    print("-- juce decoding modules loaded.  www.credland.net")
+    print("-- juce decoding modules loaded.  www.credland.net.  Advanced JUCE consultancy services.")
+    print("-- V2. With AudioBlock support.")
     print(" - refer to the help for the 'type' command")
 
     # Array<*>
@@ -58,6 +60,13 @@ def __lldb_init_module(debugger, dict):
 
     # String
     debugger.HandleCommand('type summary add juce::String --summary-string "${var.text.data}" -w juce')
+
+    # AudioBlock<float> synthetic children 
+    debugger.HandleCommand('type summary add -x "^juce::dsp::AudioBlock<float>" -F juce_lldb_xcode.audioBlockSummary -w juce')
+    # debugger.HandleCommand('type synthetic add -x "^juce::dsp::AudioBlock<float>" --python-class juce_lldb_xcode.AudioBlockChildrenProvider -w juce')
+
+    # debugger.HandleCommand('type summary add juce::AudioBlock<float> --summary-string "size=${var.numSamples}" -w juce')
+    # debugger.HandleCommand('type summary add juce::AudioBlock<double> --python-function juce_lldb_xcode.audio_block_summary -w juce')
 
     # var
     debugger.HandleCommand('type summary add juce::var -F juce_lldb_xcode.var_summary -w juce')
@@ -263,3 +272,94 @@ class ArrayChildrenProvider:
 
     def has_children(self):
         return self.count > 0
+
+def read_float_from_memory(address):
+    process = lldb.debugger.GetSelectedTarget().GetProcess()
+    error = lldb.SBError()
+    
+    # Read 4 bytes of memory (size of a float)
+    data = process.ReadMemory(address, 4, error)
+    
+    if error.Success():
+        # Unpack the float from memory using the right byte order
+        import struct
+        byte_order = '<' if process.GetByteOrder() == lldb.eByteOrderLittle else '>'
+        f =  struct.unpack(byte_order + 'f', data)[0]
+        return (True, f)
+    else:
+        print(f"Error reading memory: {error.GetCString()}")
+
+        return (False, 0)
+
+def audioBlockSummary(valueObject, dictionary):
+    numChannels = valueObject.GetChildMemberWithName('numChannels').GetValueAsUnsigned()
+    numSamples = valueObject.GetChildMemberWithName('numSamples').GetValueAsUnsigned()
+
+    # add first sample from each channel
+    channels_vo = valueObject.GetChildMemberWithName('channels')
+    channels_ptr = channels_vo.GetValueAsUnsigned()
+    pointer_size = valueObject.GetProcess().GetAddressByteSize()
+
+    def get_channel_pointer(i):
+        # deference the pointer 
+        error = lldb.SBError()
+        channels_array_first_addr = valueObject.GetProcess().ReadPointerFromMemory(channels_ptr, error)
+        if error.Fail():
+            print(f"Error reading memory: {error.GetCString()}")
+            return (False, 0)
+        return (True, channels_array_first_addr + i * pointer_size)
+        
+    channelSummaries = []
+    for i in range(numChannels):
+        success, channel_data_ptr_address = get_channel_pointer(i)
+        # append first float to channelSummaries using read_float_from_memory
+        if success:
+            success2, f = read_float_from_memory(channel_data_ptr_address)
+            if success2:
+                channelSummaries.append(f"Chan{i}: s[0] == {f:.3f}")
+            else:
+                channelSummaries.append(f"Chan{i}: [memory error reading first sample]")
+        else:
+            channelSummaries.append(f"Chan{i}: [error reading main pointer]")
+
+    # if the block is shorter than 64 samples check it all for nans and infs or completely silent channels
+    # and jump out of the inner loop if we find any
+
+    if numSamples <= 256:
+        for i in range(numChannels):
+            success, channel_data_ptr_address = get_channel_pointer(i)
+
+            if not success:
+                channelSummaries[i] += " [error reading main pointer]"
+                continue
+
+            peak_level = 0.0
+
+            for j in range(numSamples):
+                sample_address = channel_data_ptr_address + j * 4
+                success2, sample = read_float_from_memory(sample_address)
+
+                if not success2:
+                    channelSummaries[i] += f" [error reading sample {j}]"
+                    break
+
+                if math.isnan(sample):
+                    channelSummaries[i] += " [NAN detected]"
+                    break
+                if math.isinf(sample):
+                    channelSummaries[i] += " [INF detected]"
+                    break
+                abs_level = math.fabs(sample)
+                if abs_level > peak_level:
+                    peak_level = abs_level
+
+            if peak_level < 0.0001:
+                channelSummaries[i] += " [silent]"
+            else:
+                peak_in_db = 20.0 * math.log10(peak_level)
+                channelSummaries[i] += f" [peak: {peak_in_db:.1f} dB]"
+
+
+    
+    channelSummaryString = ', '.join(channelSummaries)
+    return "numChannels=%d numSamples=%d [%s]" % (numChannels, numSamples, channelSummaryString)
