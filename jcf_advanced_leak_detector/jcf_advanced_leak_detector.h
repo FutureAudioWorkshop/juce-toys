@@ -1,31 +1,23 @@
-/*
-  ==============================================================================
+/*******************************************************************************
 
-    jcf_advanced_leak_detector.h
-    Created: 21 Jul 2014 12:08:08pm
-    Author:  Jim Credland
+BEGIN_JUCE_MODULE_DECLARATION
 
-  ==============================================================================
-*/
+ ID:               jcf_advanced_leak_detector
+ vendor:           juce
+ version:          4.2.1
+ name:             JCF LEAK DETECTOR
+ description:      Advanced leak detector for JUCE
+ website:          http://www.github.com/jcredland/
+ license:          MIT
 
-/*
+ dependencies:     juce_core
+ OSXFrameworks:
+ iOSFrameworks:
 
- BEGIN_JUCE_MODULE_DECLARATION
+END_JUCE_MODULE_DECLARATION
 
-  ID:               jcf_advanced_leak_detector
-  vendor:           juce
-  version:          4.2.1
-  name:             JCF LEAK DETECTOR
-  description:      Advanced leak detector for JUCE
-  website:          http://www.github.com/jcredland/
-  license:          MIT
+*******************************************************************************/
 
-  dependencies:     juce_core
-  OSXFrameworks:
-  iOSFrameworks:
-
- END_JUCE_MODULE_DECLARATION
- */
 
 #pragma once
 
